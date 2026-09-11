@@ -1,36 +1,81 @@
-# Mettre en place le vrai paiement Stripe
+// server.js
+// Serveur minimal pour créer des sessions de paiement Stripe Checkout.
+// Le panier (liste d'articles) est envoyé par le front-end en JSON,
+// et ce serveur contacte Stripe avec la clé secrète (jamais exposée au navigateur).
 
-## 1. Compte Stripe
-Créez un compte sur https://dashboard.stripe.com si ce n'est pas déjà fait,
-puis récupérez votre **clé secrète** (Développeurs → Clés API → "Secret key",
-commence par `sk_live_...` ou `sk_test_...` pour tester).
+const express = require("express");
+const cors = require("cors");
+const Stripe = require("stripe");
 
-## 2. Déployer le backend (server.js)
-Ce petit serveur est indispensable : c'est lui qui contacte Stripe avec votre
-clé secrète (qui ne doit jamais apparaître dans le site lui-même).
+const app = express();
 
-Le plus simple pour héberger ça gratuitement : **Render.com** ou **Railway.app**.
-- Créez un nouveau projet, connectez-y ces 3 fichiers (server.js, package.json)
-- Ajoutez une variable d'environnement `STRIPE_SECRET_KEY` avec votre clé secrète
-- Déployez : vous obtenez une URL du type `https://boutique-backend.onrender.com`
+// --- Config ---
+const PORT = process.env.PORT || 3000;
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
+// URL de votre site (utilisée pour les redirections après paiement)
+const SITE_URL = process.env.SITE_URL || "https://votre-site.example.com";
 
-## 3. Connecter le site à ce backend
-Ouvrez `boutique-revente.html`, tout en haut du `<script>`, remplacez :
-```js
-const BACKEND_URL = "https://votre-backend.example.com";
-```
-par l'URL réelle obtenue à l'étape 2.
+if (!STRIPE_SECRET_KEY) {
+  console.error("ERREUR: la variable d'environnement STRIPE_SECRET_KEY n'est pas définie.");
+  process.exit(1);
+}
 
-## 4. Tester
-En mode test (clé `sk_test_...`), utilisez la carte de test Stripe :
-`4242 4242 4242 4242`, n'importe quelle date future, n'importe quel CVC.
+const stripe = Stripe(STRIPE_SECRET_KEY);
 
-## À savoir
-- Le prix envoyé au serveur vient du panier du navigateur. Pour une petite
-  boutique perso c'est très bien ; si vous voulez empêcher toute
-  manipulation du prix côté client, il faudrait aussi stocker vos articles
-  côté serveur (base de données) plutôt que dans le navigateur — dites-le
-  moi si vous voulez que je fasse cette évolution.
-- Le lien de paiement Stripe par article (déjà présent dans le mode vendeur)
-  continue de fonctionner en parallèle si vous préférez cette méthode plus
-  simple pour certains articles.
+app.use(cors()); // autorise les requêtes depuis votre site (à restreindre si besoin, voir plus bas)
+app.use(express.json());
+
+// --- Route de test ---
+app.get("/", (req, res) => {
+  res.send("Backend Stripe opérationnel.");
+});
+
+// --- Création d'une session de paiement ---
+// Le front-end doit envoyer un POST avec un body du type :
+// {
+//   "items": [
+//     { "name": "T-shirt vintage", "price": 15.00, "quantity": 1 },
+//     { "name": "Sac en cuir", "price": 40.00, "quantity": 2 }
+//   ]
+// }
+// "price" est en euros (nombre décimal), converti en centimes pour Stripe.
+app.post("/create-checkout-session", async (req, res) => {
+  try {
+    const { items } = req.body;
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: "Le panier est vide ou invalide." });
+    }
+
+    const line_items = items.map((item) => {
+      if (!item.name || typeof item.price !== "number" || item.price <= 0) {
+        throw new Error(`Article invalide: ${JSON.stringify(item)}`);
+      }
+      return {
+        price_data: {
+          currency: "eur",
+          product_data: { name: item.name },
+          unit_amount: Math.round(item.price * 100), // conversion en centimes
+        },
+        quantity: item.quantity && item.quantity > 0 ? item.quantity : 1,
+      };
+    });
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      payment_method_types: ["card"],
+      line_items,
+      success_url: `${SITE_URL}/success.html`,
+      cancel_url: `${SITE_URL}/cancel.html`,
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error("Erreur lors de la création de la session Stripe:", err.message);
+    res.status(500).json({ error: "Impossible de créer la session de paiement." });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Serveur démarré sur le port ${PORT}`);
+});
