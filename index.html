@@ -654,11 +654,16 @@ function productCardHtml(p, sellerView){
 // Remplace "XXXXXXXXXX" par l'ID de bloc d'annonce (ad slot) donné par AdSense
 // pour chaque emplacement, après avoir créé tes blocs d'annonces dans ton compte.
 function adSlotHtml(id){
+  // Tant que l'ID AdSense n'a pas été renseigné (encore "XXXXXXXXXX"),
+  // on n'affiche rien du tout : cela évite un grand espace vide réservé
+  // pour une publicité qui ne se chargera jamais.
+  const adClient = "ca-pub-XXXXXXXXXXXXXXXX";
+  if (adClient.includes("XXXXXXXXXX")) return "";
   return `
     <div class="ad-slot" style="margin:10px 0;text-align:center;">
       <ins class="adsbygoogle"
            style="display:block"
-           data-ad-client="ca-pub-XXXXXXXXXXXXXXXX"
+           data-ad-client="${adClient}"
            data-ad-slot="XXXXXXXXXX"
            data-ad-format="auto"
            data-full-width-responsive="true"></ins>
